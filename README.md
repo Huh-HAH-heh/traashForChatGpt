@@ -1,1 +1,2 @@
 ![Файл 1](resorses/{8067A3B5-59FF-4E95-8A9C-C04031D3BD9B}.png)
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\Users\User\Documents\ForChatGpt\resorses\{8067A3B5-59FF-4E95-8A9C-C04031D3BD9B}.png")) | Set-Content image.txt
