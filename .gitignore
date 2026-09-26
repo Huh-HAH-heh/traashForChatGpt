@@ -1,0 +1,27 @@
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# .NET
+bin/
+obj/
+
+# Build
+Debug/
+Release/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.temp
+
+# User-specific
+*.userprefs
