@@ -1,6 +1,7 @@
-```text
+
 @echo off
-setlocal EnableDelayedExpansion
+chcp 65001 >nul
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem ==========================================
 rem НАСТРОЙКИ
@@ -17,14 +18,29 @@ rem ==========================================
 rem ПРОВЕРКА PNG
 rem ==========================================
 
+echo.
+echo Проверяю PNG:
+echo "%PNG%"
+echo.
+
 if not exist "%PNG%" (
+    echo ERROR: PNG не найден!
     echo.
-    echo ERROR: PNG не найден:
+    echo Ожидаемый файл:
     echo "%PNG%"
+    echo.
+    echo Проверь, что структура такая:
+    echo.
+    echo %ROOT%
+    echo +-- этот_bat.bat
+    echo +-- resorses
+    echo     +-- s.png
     echo.
     pause
     exit /b 1
 )
+
+echo PNG найден!
 
 rem ==========================================
 rem СОЗДАЁМ PATH
@@ -35,7 +51,7 @@ if not exist "%OUTPUT%" (
 )
 
 rem ==========================================
-rem ИЩЕМ СЛЕДУЮЩИЙ НОМЕР
+rem ИЩЕМ СЛЕДУЮЩИЙ НОМЕР ПАПКИ
 rem ==========================================
 
 set /a NUMBER=1
@@ -71,27 +87,61 @@ rem ==========================================
 rem ВРЕМЕННЫЙ BASE64
 rem ==========================================
 
-set "TEMP_BASE64=%TEMP%\rimclone_base64_%RANDOM%_%RANDOM%.txt"
+set "TEMP_BASE64=%TEMP%\png_base64_%RANDOM%_%RANDOM%.txt"
 
 echo Создаю Base64...
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$png='%PNG%'; $out='%TEMP_BASE64%'; $base64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($png)); [IO.File]::WriteAllText($out,$base64,[Text.Encoding]::ASCII)"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+"$png = [IO.Path]::GetFullPath('%PNG%'); ^
+ $out = [IO.Path]::GetFullPath('%TEMP_BASE64%'); ^
+ $bytes = [IO.File]::ReadAllBytes($png); ^
+ $base64 = [Convert]::ToBase64String($bytes); ^
+ [IO.File]::WriteAllText($out, $base64, [Text.Encoding]::ASCII)"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Не удалось создать Base64.
+    del "%TEMP_BASE64%" >nul 2>&1
+    pause
+    exit /b 1
+)
 
 if not exist "%TEMP_BASE64%" (
     echo.
     echo ERROR: Base64 файл не создан.
-    echo.
     pause
     exit /b 1
 )
+
+echo Base64 создан.
 
 rem ==========================================
 rem РАЗБИВАЕМ BASE64
 rem ==========================================
 
-echo Разрезаю на части...
+echo Разрезаю Base64 на части...
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$source='%TEMP_BASE64%'; $output='%DIR%'; $max=200*1024; $data=[IO.File]::ReadAllText($source); $number=1; for($i=0; $i -lt $data.Length; $i += $max){$length=[Math]::Min($max,$data.Length-$i); $part=$data.Substring($i,$length); [IO.File]::WriteAllText((Join-Path $output ($number.ToString()+'.txt')),$part,[Text.Encoding]::ASCII); $number++}"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+"$source = [IO.Path]::GetFullPath('%TEMP_BASE64%'); ^
+ $output = [IO.Path]::GetFullPath('%DIR%'); ^
+ $max = %CHUNK_SIZE% * 1024; ^
+ $data = [IO.File]::ReadAllText($source); ^
+ $number = 1; ^
+ for ($i = 0; $i -lt $data.Length; $i += $max) { ^
+     $length = [Math]::Min($max, $data.Length - $i); ^
+     $part = $data.Substring($i, $length); ^
+     $file = Join-Path $output ($number.ToString() + '.txt'); ^
+     [IO.File]::WriteAllText($file, $part, [Text.Encoding]::ASCII); ^
+     $number++; ^
+ }"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Не удалось разбить Base64.
+    del "%TEMP_BASE64%" >nul 2>&1
+    pause
+    exit /b 1
+)
 
 rem ==========================================
 rem УДАЛЯЕМ ВРЕМЕННЫЙ ФАЙЛ
@@ -108,6 +158,9 @@ echo ==========================================
 echo ГОТОВО!
 echo ==========================================
 echo.
+echo PNG:
+echo %PNG%
+echo.
 echo Папка:
 echo %DIR%
 echo.
@@ -119,4 +172,3 @@ echo.
 echo ==========================================
 
 pause
-```
