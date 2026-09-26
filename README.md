@@ -1,0 +1,1 @@
+![Файл 1](resorses/{8067A3B5-59FF-4E95-8A9C-C04031D3BD9B}.png)
