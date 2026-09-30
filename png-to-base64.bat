@@ -1,174 +1,210 @@
-
 @echo off
 chcp 65001 >nul
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 
 rem ==========================================
-rem НАСТРОЙКИ
+rem SETTINGS
 rem ==========================================
 
 set "ROOT=%~dp0"
-set "PNG=%ROOT%resorses\s.png"
+set "INPUT=%ROOT%resorses"
 set "OUTPUT=%ROOT%path"
-
-rem Размер одного TXT: 200 КБ
 set "CHUNK_SIZE=200"
 
-rem ==========================================
-rem ПРОВЕРКА PNG
-rem ==========================================
-
 echo.
-echo Проверяю PNG:
-echo "%PNG%"
+echo ==========================================
+echo       MASS FILE PROCESSOR
+echo ==========================================
+echo.
+echo Input:
+echo "%INPUT%"
+echo.
+echo Output:
+echo "%OUTPUT%"
 echo.
 
-if not exist "%PNG%" (
-    echo ERROR: PNG не найден!
-    echo.
-    echo Ожидаемый файл:
-    echo "%PNG%"
-    echo.
-    echo Проверь, что структура такая:
-    echo.
-    echo %ROOT%
-    echo +-- этот_bat.bat
-    echo +-- resorses
-    echo     +-- s.png
+if not exist "%INPUT%" (
+    echo ERROR: Folder resorses not found.
     echo.
     pause
     exit /b 1
 )
-
-echo PNG найден!
-
-rem ==========================================
-rem СОЗДАЁМ PATH
-rem ==========================================
 
 if not exist "%OUTPUT%" (
     mkdir "%OUTPUT%"
 )
 
 rem ==========================================
-rem ИЩЕМ СЛЕДУЮЩИЙ НОМЕР ПАПКИ
+rem ENVIRONMENT FOR POWERSHELL
 rem ==========================================
 
-set /a NUMBER=1
-
-:CHECK_NUMBER
-
-if exist "%OUTPUT%\%NUMBER%" (
-    set /a NUMBER+=1
-    goto CHECK_NUMBER
-)
-
-set "DIR=%OUTPUT%\%NUMBER%"
-
-mkdir "%DIR%"
+set "BT_INPUT=%INPUT%"
+set "BT_OUTPUT=%OUTPUT%"
+set "BT_CHUNK_SIZE=%CHUNK_SIZE%"
 
 rem ==========================================
-rem ИНФОРМАЦИЯ
+rem CREATE TEMP POWERSHELL SCRIPT
+rem IMPORTANT:
+rem SCRIPT CONTAINS ASCII ONLY
 rem ==========================================
 
+set "PSFILE=%TEMP%\file_processor_%RANDOM%_%RANDOM%.ps1"
+
+> "%PSFILE%" echo $ErrorActionPreference = 'Stop'
+>>"%PSFILE%" echo $inputDir = [IO.Path]::GetFullPath($env:BT_INPUT)
+>>"%PSFILE%" echo $outputDir = [IO.Path]::GetFullPath($env:BT_OUTPUT)
+>>"%PSFILE%" echo $chunkSize = [int]$env:BT_CHUNK_SIZE * 1024
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo Write-Host ''
+>>"%PSFILE%" echo Write-Host 'Scanning input directory...' -ForegroundColor Cyan
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo $files = @(Get-ChildItem -LiteralPath $inputDir -File -Recurse)
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo if ($files.Count -eq 0) {
+>>"%PSFILE%" echo     Write-Host 'ERROR: No files found.' -ForegroundColor Red
+>>"%PSFILE%" echo     exit 2
+>>"%PSFILE%" echo }
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo Write-Host ('Files found: ' + $files.Count) -ForegroundColor Green
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo $number = 1
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo while (Test-Path -LiteralPath (Join-Path $outputDir $number)) {
+>>"%PSFILE%" echo     $number++
+>>"%PSFILE%" echo }
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo foreach ($file in $files) {
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     Write-Host '==========================================' -ForegroundColor DarkGray
+>>"%PSFILE%" echo     Write-Host ('FILE ' + $number + ': ' + $file.Name) -ForegroundColor Cyan
+>>"%PSFILE%" echo     Write-Host ('SIZE: ' + ('{0:N2}' -f ($file.Length / 1MB)) + ' MB')
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $dir = Join-Path $outputDir $number
+>>"%PSFILE%" echo     New-Item -ItemType Directory -Path $dir -Force ^| Out-Null
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo     # COPY ORIGINAL FILE
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $originalPath = Join-Path $dir $file.Name
+>>"%PSFILE%" echo     Copy-Item -LiteralPath $file.FullName -Destination $originalPath -Force
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo     # META
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $meta = @(
+>>"%PSFILE%" echo         ('SOURCE_FILE=' + $file.Name)
+>>"%PSFILE%" echo         ('SOURCE_PATH=' + $file.FullName)
+>>"%PSFILE%" echo         ('SOURCE_EXTENSION=' + $file.Extension)
+>>"%PSFILE%" echo         ('SOURCE_SIZE_BYTES=' + $file.Length)
+>>"%PSFILE%" echo         ('SOURCE_SIZE_MB=' + ('{0:N2}' -f ($file.Length / 1MB)))
+>>"%PSFILE%" echo         ('OUTPUT_FOLDER=' + $number)
+>>"%PSFILE%" echo     )
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     [IO.File]::WriteAllLines(
+>>"%PSFILE%" echo         (Join-Path $dir 'meta.txt'),
+>>"%PSFILE%" echo         $meta,
+>>"%PSFILE%" echo         [Text.Encoding]::UTF8
+>>"%PSFILE%" echo     )
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo     # BASE64
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     Write-Host 'Creating Base64...' -ForegroundColor Yellow
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $bytes = [IO.File]::ReadAllBytes($file.FullName)
+>>"%PSFILE%" echo     $base64 = [Convert]::ToBase64String($bytes)
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo     # SPLIT BASE64
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     Write-Host 'Splitting Base64...' -ForegroundColor Yellow
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $partNumber = 1
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     for ($i = 0; $i -lt $base64.Length; $i += $chunkSize) {
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo         $length = [Math]::Min($chunkSize, $base64.Length - $i)
+>>"%PSFILE%" echo         $part = $base64.Substring($i, $length)
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo         $partPath = Join-Path $dir ($partNumber.ToString() + '.txt')
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo         [IO.File]::WriteAllText(
+>>"%PSFILE%" echo             $partPath,
+>>"%PSFILE%" echo             $part,
+>>"%PSFILE%" echo             [Text.Encoding]::ASCII
+>>"%PSFILE%" echo         )
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo         $partNumber++
+>>"%PSFILE%" echo     }
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $parts = $partNumber - 1
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo     # SUMMARY
+>>"%PSFILE%" echo     # ------------------------------------------
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $summary = @(
+>>"%PSFILE%" echo         ('SOURCE_FILE=' + $file.Name)
+>>"%PSFILE%" echo         ('SOURCE_SIZE_BYTES=' + $file.Length)
+>>"%PSFILE%" echo         ('BASE64_LENGTH=' + $base64.Length)
+>>"%PSFILE%" echo         ('CHUNK_SIZE_BYTES=' + $chunkSize)
+>>"%PSFILE%" echo         ('CHUNKS=' + $parts)
+>>"%PSFILE%" echo     )
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     [IO.File]::WriteAllLines(
+>>"%PSFILE%" echo         (Join-Path $dir 'summary.txt'),
+>>"%PSFILE%" echo         $summary,
+>>"%PSFILE%" echo         [Text.Encoding]::UTF8
+>>"%PSFILE%" echo     )
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     Write-Host ('DONE: ' + $dir) -ForegroundColor Green
+>>"%PSFILE%" echo     Write-Host ('PARTS: ' + $parts) -ForegroundColor Green
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo     $number++
+>>"%PSFILE%" echo }
+>>"%PSFILE%" echo.
+>>"%PSFILE%" echo Write-Host '==========================================' -ForegroundColor DarkGray
+>>"%PSFILE%" echo Write-Host 'ALL FILES PROCESSED!' -ForegroundColor Green
+>>"%PSFILE%" echo Write-Host '==========================================' -ForegroundColor DarkGray
+
+rem ==========================================
+rem RUN POWERSHELL
+rem ==========================================
+
+echo Starting PowerShell...
 echo.
-echo ==========================================
-echo PNG:
-echo %PNG%
-echo.
-echo Результат:
-echo %DIR%
-echo.
-echo Размер части: %CHUNK_SIZE% KB
-echo ==========================================
-echo.
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%"
+
+set "EXITCODE=%ERRORLEVEL%"
 
 rem ==========================================
-rem ВРЕМЕННЫЙ BASE64
+rem CLEAN TEMP
 rem ==========================================
 
-set "TEMP_BASE64=%TEMP%\png_base64_%RANDOM%_%RANDOM%.txt"
+del "%PSFILE%" >nul 2>&1
 
-echo Создаю Base64...
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-"$png = [IO.Path]::GetFullPath('%PNG%'); ^
- $out = [IO.Path]::GetFullPath('%TEMP_BASE64%'); ^
- $bytes = [IO.File]::ReadAllBytes($png); ^
- $base64 = [Convert]::ToBase64String($bytes); ^
- [IO.File]::WriteAllText($out, $base64, [Text.Encoding]::ASCII)"
-
-if errorlevel 1 (
+if not "%EXITCODE%"=="0" (
     echo.
-    echo ERROR: Не удалось создать Base64.
-    del "%TEMP_BASE64%" >nul 2>&1
-    pause
-    exit /b 1
-)
-
-if not exist "%TEMP_BASE64%" (
+    echo ==========================================
+    echo ERROR
+    echo CODE: %EXITCODE%
+    echo ==========================================
     echo.
-    echo ERROR: Base64 файл не создан.
     pause
-    exit /b 1
+    exit /b %EXITCODE%
 )
 
-echo Base64 создан.
-
-rem ==========================================
-rem РАЗБИВАЕМ BASE64
-rem ==========================================
-
-echo Разрезаю Base64 на части...
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-"$source = [IO.Path]::GetFullPath('%TEMP_BASE64%'); ^
- $output = [IO.Path]::GetFullPath('%DIR%'); ^
- $max = %CHUNK_SIZE% * 1024; ^
- $data = [IO.File]::ReadAllText($source); ^
- $number = 1; ^
- for ($i = 0; $i -lt $data.Length; $i += $max) { ^
-     $length = [Math]::Min($max, $data.Length - $i); ^
-     $part = $data.Substring($i, $length); ^
-     $file = Join-Path $output ($number.ToString() + '.txt'); ^
-     [IO.File]::WriteAllText($file, $part, [Text.Encoding]::ASCII); ^
-     $number++; ^
- }"
-
-if errorlevel 1 (
-    echo.
-    echo ERROR: Не удалось разбить Base64.
-    del "%TEMP_BASE64%" >nul 2>&1
-    pause
-    exit /b 1
-)
-
-rem ==========================================
-rem УДАЛЯЕМ ВРЕМЕННЫЙ ФАЙЛ
-rem ==========================================
-
-del "%TEMP_BASE64%" >nul 2>&1
-
-rem ==========================================
-rem РЕЗУЛЬТАТ
-rem ==========================================
-
 echo.
 echo ==========================================
-echo ГОТОВО!
+echo DONE
 echo ==========================================
 echo.
-echo PNG:
-echo %PNG%
+echo Output:
+echo "%OUTPUT%"
 echo.
-echo Папка:
-echo %DIR%
-echo.
-echo Файлы:
-
-dir /b "%DIR%\*.txt"
-
-echo.
-echo ==========================================
-
 pause
